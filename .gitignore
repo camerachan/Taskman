@@ -1,0 +1,10 @@
+# 下記拡張子は無視
+*.exe
+*.spec
+*.db
+*.pdf
+# フォルダ以下は無視
+venv/
+dist/
+build/
+uploads/
