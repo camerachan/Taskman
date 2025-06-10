@@ -1,7 +1,7 @@
 
-# 📘Taskman 仕様書
+# Taskman 仕様書
 
-## 1. 📝 概要
+## 1. 概要
 
 **Taskman** は、Streamlitベースで構築されたシンプルな **カンバン式タスク管理アプリケーション** 。SQLiteデータベースを用いてタスクの情報を永続的に保存し、Webブラウザ上でタスクの追加、編集、削除、ステータス変更、並び替え、検索、フィルタリングが可能。
 
@@ -35,7 +35,7 @@ venv\Script\Activate
 pip install streamlit pandas
 ```
 
-## 3. 📂 主な機能一覧
+## 3. 主な機能一覧
 
 | 機能名                 | 内容                                                       |
 | ---------------------- | ---------------------------------------------------------- |
@@ -49,7 +49,7 @@ pip install streamlit pandas
 | ソート                 | カードの上下移動による並び順変更                           |
 | セーフティチェック     | `unsafe_allow_html=True` による HTML描画に注意喚起あり     |
 
-## 4. 🧱 データベース仕様（SQLite）
+## 4. データベース仕様（SQLite）
 
 ### 4.1 テーブル名: `tickets`
 
@@ -68,7 +68,7 @@ pip install streamlit pandas
 | `parent_id`  | INTEGER   | 親タスクID（サブタスク用）           |
 | `attachment` | TEXT      | 添付ファイルのファイルパス           |
 
-## 5. 🖥️ システム構成
+## 5. システム構成
 
 - **フロントエンド**: [Streamlit](https://streamlit.io/)
 - **データベース**: SQLite3
@@ -77,7 +77,7 @@ pip install streamlit pandas
   - `st.expander` による詳細の開閉式カード
   - `st.sidebar` によるソート・フィルタオプション設定
 
-## 6. 📁 ファイル構成と起動方法
+## 6. ファイル構成と起動方法
 
 ```　bash
 .
@@ -98,12 +98,22 @@ streamlit run app.py
 streamlit-desktop-app build app.py --name Taskman --pyinstaller-options --windowed --onefile
 ```
 
-## 7. 🔐 セキュリティと制約事項
+## 7. セキュリティと制約事項
 
 - `unsafe_allow_html=True` を使用しているため、**XSSリスクのあるHTMLの描画に注意が必要**。
 - ファイルアップロード時は `uploads/` ディレクトリに保存され、任意のファイル名が保存可能なため、**ファイル名の検証などの対策は未実装**。
 
-## 8. 🔧 拡張案（今後の構想）
+## 8. 既知の不具合
+
+### 8.1. チケットの展開/折畳情報が保持されない
+
+  起動のたびにチケットが折り畳まれて表示される。SQLの情報に展開情報を追加することで次回起動時にも対応できるようにしたい。
+
+### 8.2. 展開したチケットを横移動させると、そのチケットより後ろにあるチケットが展開される
+
+　展開/折畳情報を管理する方法がまずい。展開/折畳情報の管理方法の検討が必要。
+
+## 9. 今後の拡張構想
 
 - サブタスクの階層表示対応
 - チケットコメント機能の追加
@@ -112,11 +122,11 @@ streamlit-desktop-app build app.py --name Taskman --pyinstaller-options --window
 - モバイル対応のUI最適化
 - タグ色・優先度に応じた色変更のスタイル強化
 
-## 9. 機能拡張方針
+## 10. 機能拡張方針
 
 このセクションでは、本アプリケーションに対して今後機能拡張を行うための基本方針および具体的な拡張例について示す。
 
-### 9.1. 拡張設計の基本方針
+### 10.1. 拡張設計の基本方針
 
 本アプリケーションは以下の設計方針に基づいて機能が構成されている:
 
@@ -133,9 +143,9 @@ streamlit-desktop-app build app.py --name Taskman --pyinstaller-options --window
 | 状態管理     | ユーザ操作に応じた状態更新処理 | `st.session_state`   |
 | ファイル構成 | アップロード・ダウンロード処理 | `os` / `uploads/`    |
 
-### 9.2. 機能追加例
+### 10.2. 機能追加例
 
-#### 9.2.1. サブタスク機能の追加
+#### 10.2.1. サブタスク機能の追加
 
 **概要**: タスクに階層構造（親子関係）をもたせ、タスクの内報関係を表現
 
@@ -145,7 +155,7 @@ streamlit-desktop-app build app.py --name Taskman --pyinstaller-options --window
 - `insert_ticket()` 実行時に `parent_id`を渡す処理を追加
 - UI上で子タスクの展開・折畳や並び変え機能を拡張
 
-#### 9.2.2 ファイル添付機能の拡張
+#### 10.2.2 ファイル添付機能の拡張
 
 **概要**：複数ファイルの添付、ダウンロードリンク表示
 
@@ -155,14 +165,14 @@ streamlit-desktop-app build app.py --name Taskman --pyinstaller-options --window
 - ファイル保存ディレクトリを `uploads/{ticket_id}/` に分離管理
 - 表示部分で複数ファイルを `st.download_button()` でループ処理
 
-#### 9.2.3 カレンダー表示の拡張
+#### 10.2.3 カレンダー表示の拡張
 
 **概要**：会社の休業日や祝日を反映したカスタムカレンダー表示
 
 **実装方法**：
 
 - `holidays` ライブラリを使って日本の祝日を取得
-- 独自休日は CSV または .ics ファイルで管理・読み込み
+- 独自休日はCSVまたは .icsファイルで管理・読み込み
 - カレンダー描画に `plotly`, `streamlit-aggrid`, `matplotlib` 等を検討
 
 ---
