@@ -31,7 +31,7 @@ venv\Script\Activate
 ```
 
 ```bash
-pip install streamlit pandas
+pip install -r requirements.txt
 ```
 
 ## 3. 📂 主な機能一覧
@@ -46,6 +46,7 @@ pip install streamlit pandas
 | DB切り替え             | 同一フォルダー内の SQLite ファイルを選択可能、新規作成可能 |
 | フィルター             | タグ、優先度によるチケットの絞り込み                       |
 | ソート                 | カードの上下移動による並び順変更                           |
+| ドラッグ＆ドロップ     | カードをマウスで移動し並び替え可能    |
 | セーフティチェック     | `unsafe_allow_html=True` による HTML描画に注意喚起あり     |
 
 ## 4. 🧱 データベース仕様（SQLite）
@@ -95,9 +96,14 @@ streamlit run app.py
 
 ``` bash
 streamlit-desktop-app build app.py --name Taskman --pyinstaller-options --windowed --onefile
+
 ```
+### 6.3 ドラッグ&ドロップ操作
+各カラムのカードはドラッグ&ドロップで移動できます。
+
 
 ## 7. 🔐 セキュリティと制約事項
+
 
 - `unsafe_allow_html=True` を使用しているため、**XSSリスクのあるHTMLの描画に注意が必要**。
 - ファイルアップロード時は `uploads/` ディレクトリに保存され、任意のファイル名が保存可能なため、**ファイル名の検証などの対策は未実装**。
