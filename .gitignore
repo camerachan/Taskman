@@ -3,6 +3,7 @@
 *.spec
 *.db
 *.pdf
+*.bat
 # フォルダ以下は無視
 venv/
 dist/
