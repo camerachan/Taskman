@@ -4,6 +4,7 @@
 
 import streamlit as st
 import sqlite3, pathlib
+from streamlit_sortables import sort_items
 from datetime import datetime, timedelta
 import os
 
@@ -202,6 +203,49 @@ with st.form("add", border=True, clear_on_submit=True):
 # --- board ---
 board = fetch_board()
 
+
+# --- Drag & Drop using streamlit-sortables ---
+#   Use task titles as visible labels while mapping them back to card IDs.
+title_counts = {}
+id_to_card = {}
+sortable_containers = []
+for status in STATUSES:
+    items = []
+    for card in board[status]:
+        base = card["title"]
+        cnt = title_counts.get(base, 0)
+        title_counts[base] = cnt + 1
+        label = base + ("\u200b" * cnt)
+        items.append(label)
+        id_to_card[label] = card
+    sortable_containers.append({"header": status, "items": items})
+sorted_containers = sort_items(
+    sortable_containers,
+    multi_containers=True,
+    direction="vertical",
+    key="kanban_board",
+)
+if sorted_containers != sortable_containers:
+    for container in sorted_containers:
+        status = container["header"]
+        for idx_sort, label in enumerate(container["items"]):
+            card = id_to_card[label]
+            if card["status"] != status:
+                move_ticket(card["id"], status)
+                card["status"] = status
+            if card["sort"] != idx_sort:
+                conn.execute(
+                    "UPDATE tickets SET sort=?, updated=CURRENT_TIMESTAMP WHERE id=?",
+                    (idx_sort, card["id"]),
+                )
+                conn.commit()
+                card["sort"] = idx_sort
+    board = {
+        c["header"]: [id_to_card[label] for label in c["items"]]
+        for c in sorted_containers
+    }
+
+
 # --- チケット要素の抽出 ---
 all_cards = [card for col in board.values() for card in col]
 # --- Tag要素の抽出 ---
@@ -339,20 +383,21 @@ for idx, status in enumerate(STATUSES):
                                 file_name=os.path.basename(card["attachment"]),
                                 mime="application/octet-stream"
                             )
-                    c1, c2, c3, c4, = st.columns([1,1,1,1])
+                    #c1, c2, c3, c4, = st.columns([1,1,1,1])
+                    c1, c3 = st.columns([1,1])
                     with c1:
                         if st.button("編集", key=f"edit_{card['id']}"):
                             st.session_state.edit_id = card["id"]
                             st.rerun()
-                    with c2:
-                        if st.button("戻", key=f"prev_{card['id']}"):
-                            move_ticket(card['id'], STATUSES[max(idx-1,0)])
-                            st.rerun()
+                    #with c2:
+                    #    if st.button("戻", key=f"prev_{card['id']}"):
+                    #        move_ticket(card['id'], STATUSES[max(idx-1,0)])
+                    #        st.rerun()
                     with c3:
-                        if st.button("進", key=f"next_{card['id']}"):
-                            move_ticket(card['id'], STATUSES[min(idx+1,len(STATUSES)-1)])
-                            st.rerun()
-                    with c4:
+                    #    if st.button("進", key=f"next_{card['id']}"):
+                    #        move_ticket(card['id'], STATUSES[min(idx+1,len(STATUSES)-1)])
+                    #        st.rerun()
+                    #with c4:
                         if st.button("削除", key=f"del_{card['id']}"):
                             delete_ticket(card['id'])
                             st.rerun()
