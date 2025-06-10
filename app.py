@@ -116,27 +116,28 @@ if "edit_id" not in st.session_state:
     st.session_state.edit_id = None
 
 # --- sidebar ---
-if st.sidebar.button("展開/折畳み"):
-    st.session_state.expand_all = not st.session_state.expand_all
+with st.sidebar.expander("Utilities", expanded=True):
+    if st.button("展開/折畳み"):
+        st.session_state.expand_all = not st.session_state.expand_all
 
-hide_done  = st.sidebar.checkbox("✅完了タスクを非表示", value=False)
-overdue_only = st.sidebar.checkbox("⏰本日期限のみ")
-search_term = st.sidebar.text_input("🔍検索")
-sort_by_due = st.sidebar.checkbox("📅期日で並べ替え", value=True)
-sort_by_priority = st.sidebar.checkbox("⚡優先度で並べ替え", value=False)
+    hide_done  = st.checkbox("✅完了タスクを非表示", value=False)
+    overdue_only = st.checkbox("⏰本日期限のみ")
+    search_term = st.text_input("🔍検索")
+    sort_by_due = st.checkbox("📅期日で並べ替え", value=True)
+    sort_by_priority = st.checkbox("⚡優先度で並べ替え", value=False)
 
 
-# --- DB File Select ---
-db_files = list(pathlib.Path(".").glob("*.db"))
-db_names = [f.name for f in db_files]
-defalt_db = "tickets.db"
+    # --- DB File Select ---
+    db_files = list(pathlib.Path(".").glob("*.db"))
+    db_names = [f.name for f in db_files]
+    defalt_db = "tickets.db"
 
-selected_db = st.sidebar.selectbox("📂使用するDB", db_names, index=db_names.index(defalt_db) if defalt_db in db_names else 0)
+    selected_db = st.selectbox("📂使用するDB", db_names, index=db_names.index(defalt_db) if defalt_db in db_names else 0)
 
-# --- DB Change ---
-DB = pathlib.Path(selected_db)
-conn = sqlite3.connect(DB, check_same_thread=False)
-conn.row_factory = sqlite3.Row
+    # --- DB Change ---
+    DB = pathlib.Path(selected_db)
+    conn = sqlite3.connect(DB, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
 
 # --- Create New DB ---
 with st.sidebar.expander("新しいDBを作成", expanded=False):
@@ -149,7 +150,7 @@ with st.sidebar.expander("新しいDBを作成", expanded=False):
         else:
             conn_new = sqlite3.connect(new_db_name)
             conn_new.execute("""
-                             CREATE TABLE IF NOT EXISTS tickets (
+                            CREATE TABLE IF NOT EXISTS tickets (
                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                                 title TEXT NOT NULL,
                                 detail TEXT,
@@ -162,7 +163,7 @@ with st.sidebar.expander("新しいDBを作成", expanded=False):
                                 updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                 parent_id INTEGER DEFAULT NULL,
                                 attachment TEXT DEFAULT NULL
-                             )
+                            )
             """)
             conn_new.commit()
             conn_new.close()
