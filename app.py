@@ -25,7 +25,8 @@ conn.execute(
         created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         parent_id INTEGER DEFAULT NULL,
-        attachment TEXT DEFAULT NULL
+        attachment TEXT DEFAULT NULL,
+        is_extended INTEGER DEFAULT 0
     )"""
 )
 conn.commit()
@@ -35,13 +36,24 @@ column_names = [col["name"] for col in columns]
 if "attachment" not in column_names:
     conn.execute("ALTER TABLE tickets ADD COLUMN attachment TEXT DEFAULT NULL")
     conn.commit()
+if "is_extended" not in column_names:
+    conn.execute("ALTER TABLE tickets ADD COLUMN is_extended INTEGER DEFAULT 0")
+    conn.commit()
 
 
 STATUSES = ["Todo", "Doing", "Done"]
-TODAY = datetime.today().date() 
+TODAY = datetime.today().date()
 
 
 # -------------------- UTIL --------------------
+
+def save_uploaded_file(uploaded_file):
+    os.makedirs("uploads", exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    file_path = f"uploads/{timestamp}_{uploaded_file.name}"
+    with open(file_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    return file_path
 
 def fetch_board():
     rows = conn.execute("SELECT * FROM tickets ORDER BY status, sort, id").fetchall()
@@ -51,18 +63,18 @@ def fetch_board():
     return board
 
 
-def insert_ticket(title, detail, due, priority, tags, parent_id=None, attachment=None):
+def insert_ticket(title, detail, due, priority, tags, parent_id=None, attachment=None, is_extended=1):
     conn.execute(
-        "INSERT INTO tickets (title, detail, due, priority, tags, status, parent_id, attachment) VALUES (?,?,?,?,?,?,?,?)",
-        (title, detail, due, priority, tags, "Todo", parent_id, save_path),
+        "INSERT INTO tickets (title, detail, due, priority, tags, status, parent_id, attachment, is_extended) VALUES (?,?,?,?,?,?,?,?,?)",
+        (title, detail, due, priority, tags, "Todo", parent_id, attachment, is_extended),
     )
     conn.commit()
 
 
-def update_ticket(ticket_id, title, detail, due, priority, tags):
+def update_ticket(ticket_id, title, detail, due, priority, tags, attachment=None):
     conn.execute(
-        "UPDATE tickets SET title=?, detail=?, due=?, priority=?, tags=?, updated=CURRENT_TIMESTAMP WHERE id=?",
-        (title, detail, due, priority, tags, ticket_id),
+        "UPDATE tickets SET title=?, detail=?, due=?, priority=?, tags=?, attachment=?, updated=CURRENT_TIMESTAMP WHERE id=?",
+        (title, detail, due, priority, tags, attachment, ticket_id),
     )
     conn.commit()
 
@@ -88,6 +100,14 @@ def move_card_in_column(card, cards_in_column, direction):
 def delete_ticket(ticket_id):
     conn.execute("DELETE FROM tickets WHERE id=?", (ticket_id,))
     conn.commit()
+
+def set_expand_state(ticket_id, expanded: bool):
+    conn.execute(
+        "UPDATE tickets SET is_extended=? WHERE id=?",
+        (1 if expanded else 0, ticket_id),
+    )
+    conn.commit()
+    st.session_state.expand_card[str(ticket_id)] = expanded
 
 # -------------------- Streamlit --------------------
 st.set_page_config(layout="wide", page_title="My Kanban")
@@ -161,7 +181,8 @@ with st.sidebar.expander("新しいDBを作成", expanded=False):
                                 created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                 updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                 parent_id INTEGER DEFAULT NULL,
-                                attachment TEXT DEFAULT NULL
+                                attachment TEXT DEFAULT NULL,
+                                is_extended INTEGER DEFAULT 0
                              )
             """)
             conn_new.commit()
@@ -185,14 +206,10 @@ with st.form("add", border=True, clear_on_submit=True):
 
     if st.form_submit_button("追加") and title:
         if uploaded_file:
-            import os
-            os.makedirs("uploads", exist_ok=True)
-            save_path = f"uploads/{uploaded_file.name}"
-            with open(save_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
+            save_path = save_uploaded_file(uploaded_file)
         else:
             save_path = None
-        insert_ticket(title, detail, due.isoformat() if due else None, priority, tags, None, save_path or None)
+        insert_ticket(title, detail, due.isoformat() if due else None, priority, tags, None, save_path or None, 1)
         new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         st.session_state.expand_card[new_id] = True
         st.success("登録しました！")
@@ -237,10 +254,10 @@ current_ids = [card["id"] for col in board.values() for card in col]
 cols = st.columns(len(STATUSES))
 
 # --- 各ステータスのチケットに対して、展開状態を初期化 ---
-for cid in current_ids:
-    cid_str = str(cid)
+for c in [card for col in board.values() for card in col]:
+    cid_str = str(c["id"])
     if cid_str not in st.session_state.expand_card:
-        st.session_state.expand_card[cid_str] = st.session_state.expand_all
+        st.session_state.expand_card[cid_str] = bool(c.get("is_extended", st.session_state.expand_all))
 
 for idx, status in enumerate(STATUSES):
     if hide_done and status == "Done":
@@ -299,27 +316,34 @@ for idx, status in enumerate(STATUSES):
             is_editing = st.session_state.edit_id == card["id"]
             card_id = str(card["id"])
             expanded = st.session_state.expand_card.get(card_id, st.session_state.expand_all)
-            with st.expander(f"{highlight}{card['title']}", expanded=expanded):
-            #with st.expander(f"{highlight}{card['title']}", expanded=st.session_state.expand_card.get(card["id"], st.session_state.expand_all)):
-                if is_editing:
-                    # --- edit mode ---
-                    etitle = st.text_input("タイトル", value=card["title"], key=f"et_{card['id']}")
-                    edetail = st.text_area("詳細", value=card["detail"], key=f"ed_{card['id']}")
-                    c1, c2, c3 = st.columns(3)
-                    edue = c1.date_input("期日", value=datetime.strptime(card["due"], "%Y-%m-%d") if card["due"] else None, key=f"edu_{card['id']}")
-                    eprio = c2.selectbox("優先度", ["High", "Medium", "Low"], index=["High","Medium","Low"].index(card["priority"]), key=f"epr_{card['id']}")
-                    etags = c3.text_input("タグ", value=card["tags"] or "", key=f"etag_{card['id']}")
-                    if st.button("💾 保存", key=f"save_{card['id']}"):
-                        update_ticket(card["id"], etitle, edetail, edue.isoformat() if edue else None, eprio, etags)
-                        st.session_state.edit_id = None
-                        st.rerun()
-                    if st.button("✖ キャンセル", key=f"cxl_{card['id']}"):
-                        st.session_state.edit_id = None
-                        st.rerun()
-                else:
-                    #st.write(card["detail"])
-                    st.markdown(card["detail"].replace("\n", "<br>"), unsafe_allow_html=True)
-                    st.markdown("""
+            if st.button(("▼" if expanded else "▶") + f"{highlight}{card['title']}", key=f"toggle_{card['id']}", use_container_width=True):
+                expanded = not expanded
+                set_expand_state(card['id'], expanded)
+            if expanded:
+                with st.container():
+                    if is_editing:
+                        # --- edit mode ---
+                        etitle = st.text_input("タイトル", value=card["title"], key=f"et_{card['id']}")
+                        edetail = st.text_area("詳細", value=card["detail"], key=f"ed_{card['id']}")
+                        c1, c2, c3 = st.columns(3)
+                        edue = c1.date_input("期日", value=datetime.strptime(card["due"], "%Y-%m-%d") if card["due"] else None, key=f"edu_{card['id']}")
+                        eprio = c2.selectbox("優先度", ["High", "Medium", "Low"], index=["High","Medium","Low"].index(card["priority"]), key=f"epr_{card['id']}")
+                        etags = c3.text_input("タグ", value=card["tags"] or "", key=f"etag_{card['id']}")
+                        efile = st.file_uploader("添付ファイル", key=f"eup_{card['id']}", type=["pdf", "png", "jpg", "xlsx", "csv", "txt", "docx", "msg"])
+                        if st.button("💾 保存", key=f"save_{card['id']}"):
+                            if efile:
+                                save_path = save_uploaded_file(efile)
+                            else:
+                                save_path = card.get("attachment")
+                            update_ticket(card["id"], etitle, edetail, edue.isoformat() if edue else None, eprio, etags, save_path)
+                            st.session_state.edit_id = None
+                            st.rerun()
+                        if st.button("✖ キャンセル", key=f"cxl_{card['id']}"):
+                            st.session_state.edit_id = None
+                            st.rerun()
+                    else:
+                        st.markdown(card["detail"].replace("\n", "<br>"), unsafe_allow_html=True)
+                        st.markdown("""
                     <style>
                     .css-1n76uvr, .stMultiSelect [data-baseweb="tag"] {
                         background-color: #A0AECB !important;  /* 緑（Medium用） */
