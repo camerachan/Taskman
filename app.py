@@ -1,6 +1,6 @@
 # ----- streamlit exe化 script------
 # venv\Scripts\Activate
-# streamlit-desktop-app build app.py --name Taskman --pyinstaller-options --windowed --onefile
+# streamlit-desktop-app build app.py --name Taskman --pyinstaller-options --windowed --onefile --icon=taskman.ico
 
 import streamlit as st
 import sqlite3, pathlib
@@ -425,7 +425,9 @@ for idx, status in enumerate(STATUSES):
                             st.checkbox("", value=bool(sub["done"]), key=f"chk_{sub['id']}", on_change=toggle_subtask, args=(sub["id"], not sub["done"]))
                         with c_lbl:
                             label = f"~~{sub['title']}~~" if sub["done"] else sub["title"]
-                            st.markdown(label, unsafe_allow_html=True)
+                            st.markdown(f"<div style='line-height: 1.2em; margin: 0 0 0.2em 0;'>{label}</div>", unsafe_allow_html=True)
+                            #label = f"~~{sub['title']}~~" if sub["done"] else sub["title"]
+                            #st.markdown(label, unsafe_allow_html=True)
                         with c_del:
                             if st.button("🗑️", key=f"del_{card_id}_{sub['id']}"):
                                 delete_subtask(sub["id"])
@@ -435,7 +437,7 @@ for idx, status in enumerate(STATUSES):
                     c_inp, c_add = st.columns([0.8, 0.2])
                     new_key = f"new_sub_{cid}"
                     with c_inp:
-                        st.text_input("小タスクを追加", key=new_key, placeholder="小タスクを追加", label_visibility="collapsed")
+                        st.text_input("小タスクを追加", key=new_key, placeholder="小タスクを追加", label_visibility="collapsed",on_change=add_subtask_cb,args=(cid,new_key))
                     with c_add:
                         st.button("＋", key=f"add_{cid}", on_click=add_subtask_cb, args=(cid, new_key))
 
