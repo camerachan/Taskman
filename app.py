@@ -25,23 +25,52 @@ conn.execute(
         created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         parent_id INTEGER DEFAULT NULL,
-        attachment TEXT DEFAULT NULL
+        attachment TEXT DEFAULT NULL,
+        is_extended INTEGER DEFAULT 0
     )"""
+)
+
+conn.execute(
+    """
+    CREATE TABLE IF NOT EXISTS subtasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        done INTEGER DEFAULT 0,
+        sort INTEGER DEFAULT 0,
+        created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+    );
+    """
 )
 conn.commit()
 
-columns = conn.execute("PRAGMA table_info(tickets)").fetchall()
-column_names = [col["name"] for col in columns]
-if "attachment" not in column_names:
-    conn.execute("ALTER TABLE tickets ADD COLUMN attachment TEXT DEFAULT NULL")
-    conn.commit()
-
 
 STATUSES = ["Todo", "Doing", "Done"]
-TODAY = datetime.today().date() 
-
+PRIORITIES = ["High", "Medium", "Low"]
+TODAY = datetime.today().date()
+DATABASE_NAME = 'taskman.db'
 
 # -------------------- UTIL --------------------
+
+def save_uploaded_file(uploaded_file):
+    os.makedirs("uploads", exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    file_path = f"uploads/{timestamp}_{uploaded_file.name}"
+    with open(file_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    return file_path
+
+def save_file(uploaded):
+    if not uploaded:
+        return None
+    folder = pathlib.Path("uploads"); folder.mkdir(exist_ok=True)
+    name = datetime.now().strftime("%Y%m%d_%H%M%S_") + uploaded.name
+    path = folder / name
+    with open(path, "wb") as f:
+        f.write(uploaded.getbuffer())
+    return str(path)
 
 def fetch_board():
     rows = conn.execute("SELECT * FROM tickets ORDER BY status, sort, id").fetchall()
@@ -50,22 +79,39 @@ def fetch_board():
         board[r["status"].strip()].append(dict(r))
     return board
 
+# -------------------- Sub task CRUD --------------------
+def fetch_subtasks(ticket_id):
+    rows = conn.execute("SELECT * FROM subtasks WHERE ticket_id=? ORDER BY sort, id", (ticket_id,)).fetchall()
+    return [dict(r) for r in rows]
 
-def insert_ticket(title, detail, due, priority, tags, parent_id=None, attachment=None):
+def add_subtask(ticket_id, title):
+    conn.execute("INSERT INTO subtasks (ticket_id, title) VALUES (?,?)", (ticket_id, title))
+    conn.commit()
+
+def toggle_subtask(sub_id, new):
+    conn.execute("UPDATE subtasks SET done=?, updated=CURRENT_TIMESTAMP WHERE id=?", (1 if new else 0, sub_id))
+    conn.commit()
+
+def delete_subtask(sub_id):
+    conn.execute("DELETE FROM subtasks WHERE id=?", (sub_id,))
+    conn.commit()
+
+# -------------------- Tiecket CRUD --------------------
+
+def insert_ticket(title, detail, due, priority, tags, parent_id=None, attachment=None, is_extended=1):
     conn.execute(
-        "INSERT INTO tickets (title, detail, due, priority, tags, status, parent_id, attachment) VALUES (?,?,?,?,?,?,?,?)",
-        (title, detail, due, priority, tags, "Todo", parent_id, save_path),
+        "INSERT INTO tickets (title, detail, due, priority, tags, status, parent_id, attachment, is_extended) VALUES (?,?,?,?,?,?,?,?,?)",
+        (title, detail, due, priority, tags, "Todo", parent_id, save_path, is_extended),
     )
     conn.commit()
 
 
-def update_ticket(ticket_id, title, detail, due, priority, tags):
+def update_ticket(ticket_id, title, detail, due, priority, tags, attachment=None):
     conn.execute(
-        "UPDATE tickets SET title=?, detail=?, due=?, priority=?, tags=?, updated=CURRENT_TIMESTAMP WHERE id=?",
-        (title, detail, due, priority, tags, ticket_id),
+        "UPDATE tickets SET title=?, detail=?, due=?, priority=?, tags=?, attachment=?, updated=CURRENT_TIMESTAMP WHERE id=?",
+        (title, detail, due, priority, tags, attachment, ticket_id),
     )
     conn.commit()
-
 
 def move_ticket(ticket_id, new_status):
     conn.execute(
@@ -74,20 +120,40 @@ def move_ticket(ticket_id, new_status):
     )
     conn.commit()
 
-def move_card_in_column(card, cards_in_column, direction):
-    index = next((i for i, c in enumerate(cards_in_column) if c['id'] == card['id']), None)
-    if index is None:
-        return
-    new_index = index + direction
-    if 0 <= new_index < len(cards_in_column):
-        other_card = cards_in_column[new_index]
-        conn.execute("UPDATE tickets SET sort=? WHERE id=?", (other_card["sort"], card["id"]))
-        conn.execute("UPDATE tickets SET sort=? WHERE id=?", (card["sort"], other_card["id"]))
-        conn.commit()
-
 def delete_ticket(ticket_id):
     conn.execute("DELETE FROM tickets WHERE id=?", (ticket_id,))
     conn.commit()
+
+def set_expand_state(ticket_id, state):
+    print("expand state:", ticket_id, state)
+    conn.execute(
+        "UPDATE tickets SET is_extended=? WHERE id=?",
+        (1 if state else 0, ticket_id)
+    )
+    conn.commit()
+    st.session_state.expand_card[str(ticket_id)] = state
+
+def get_expander_state(expander_id):
+    """データベースからエキスパンダーの状態を取得する"""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT is_expanded FROM expander_states WHERE expander_id = ?", (expander_id,))
+    result = cursor.fetchone()
+    conn.close()
+    if result:
+        return bool(result[0])
+    return False # デフォルトは閉じた状態
+
+def save_expander_state(expander_id, is_expanded):
+    """エキスパンダーの状態をデータベースに保存する"""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT OR REPLACE INTO expander_states (expander_id, is_expanded) VALUES (?, ?)",
+        (expander_id, int(is_expanded))
+    )
+    conn.commit()
+    conn.close()
 
 # -------------------- Streamlit --------------------
 st.set_page_config(layout="wide", page_title="My Kanban")
@@ -114,6 +180,11 @@ if "expand_all" not in st.session_state:
     st.session_state.expand_all = False
 if "edit_id" not in st.session_state:
     st.session_state.edit_id = None
+if "prev_expand_card" not in st.session_state:
+    st.session_state.prev_expand_card ={}
+if "is_expanded" not in st.session_state:
+    st.session_state.is_expanded = {}
+
 
 # --- sidebar ---
 with st.sidebar.expander("Utilities", expanded=True):
@@ -162,7 +233,8 @@ with st.sidebar.expander("新しいDBを作成", expanded=False):
                                 created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                 updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                 parent_id INTEGER DEFAULT NULL,
-                                attachment TEXT DEFAULT NULL
+                                attachment TEXT DEFAULT NULL,
+                                is_extended INTEGER DEFAULT 0
                             )
             """)
             conn_new.commit()
@@ -179,26 +251,30 @@ with st.form("add", border=True, clear_on_submit=True):
     detail = st.text_area("詳細")
     c1, c2, c3 = st.columns(3)
     due = c1.date_input("期日", value=None)
-    priority = c2.selectbox("優先度", ["High", "Medium", "Low"])
+    priority = c2.selectbox("優先度", PRIORITIES)
     tags = c3.text_input("タグ", placeholder="bug,urgent")
 
     uploaded_file = st.file_uploader("添付ファイル", key="file", type=["pdf", "png", "jpg", "xlsx", "csv", "txt", "docx", "msg"])
 
     if st.form_submit_button("追加") and title:
         if uploaded_file:
-            import os
-            os.makedirs("uploads", exist_ok=True)
-            save_path = f"uploads/{uploaded_file.name}"
-            with open(save_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
+            save_path = save_uploaded_file(uploaded_file)
         else:
             save_path = None
-        insert_ticket(title, detail, due.isoformat() if due else None, priority, tags, None, save_path or None)
+        insert_ticket(title, detail, due.isoformat() if due else None, priority, tags, None, save_path or None, 1)
         new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         st.session_state.expand_card[new_id] = True
         st.success("登録しました！")
         st.rerun()
 # --- end of Ticket submission form ---
+
+
+# ------- Callback for subtask --------
+def add_subtask_cb(ticket_id, key):
+    txt = st.session_state.get(key, "").strip()
+    if txt:
+        add_subtask(ticket_id, txt)
+        st.session_state[key] = ""
 
 # --- board ---
 board = fetch_board()
@@ -238,17 +314,20 @@ current_ids = [card["id"] for col in board.values() for card in col]
 cols = st.columns(len(STATUSES))
 
 # --- 各ステータスのチケットに対して、展開状態を初期化 ---
-for cid in current_ids:
-    cid_str = str(cid)
-    if cid_str not in st.session_state.expand_card:
-        st.session_state.expand_card[cid_str] = st.session_state.expand_all
+for c in all_cards:
+    cid = str(c["id"])
+    if cid not in st.session_state.expand_card:
+        st.session_state.expand_card[cid] = bool(c.get("is_extended", False)) #初期値
+
 
 for idx, status in enumerate(STATUSES):
     if hide_done and status == "Done":
         continue
     with cols[idx]:
         st.markdown(f"### {status}")
+        # --- チケットの並び替えとフィルタリング ---
         cards = board[status]
+        # --- 期限でのフィルタと優先度フィルタ ---
         if sort_by_due and sort_by_priority:
             priority_map = {"High": 0, "Medium": 1, "Low": 2}
             cards.sort(key=lambda x: (
@@ -256,6 +335,7 @@ for idx, status in enumerate(STATUSES):
                 priority_map.get(x["priority"], 3),
                 x["id"]
             ))
+        # --- 期限での並び替えと優先度での並び替えの条件分岐 ---
         elif sort_by_due:
             cards.sort(key=lambda x: (x["due"] or "9999-12-31", x["id"]))
         elif sort_by_priority:
@@ -267,12 +347,14 @@ for idx, status in enumerate(STATUSES):
                 c for c in cards
                 if c["due"] and datetime.strptime(c["due"], "%Y-%m-%d").date() <= TODAY
             ]
+        # 検索条件フィルタ(検索ボックスに入力された文字列がタイトルまたはタグに含まれるか)
         if search_term:
             cards = [c for c in cards if search_term.lower() in c["title"].lower() or search_term.lower() in (c["tags"] or "")] 
 
-        # 優先度とタグフィルタ 追加:6/9
+        # 優先度とタグフィルタ
         cards = [c for c in cards if c["priority"] in priority_filter and (not c["tags"] or any(t in selected_tags for t in c["tags"].split(",")))]
         
+        # --- チケット単位の表示処理 ---
         for card in cards:
             # 期日までの日数を計算
             if card["due"]:
@@ -297,11 +379,17 @@ for idx, status in enumerate(STATUSES):
                 highlight = "🟡"  # 5日以内
             else:
                 highlight = "🟢"  # それ以降
-            is_editing = st.session_state.edit_id == card["id"]
-            card_id = str(card["id"])
-            expanded = st.session_state.expand_card.get(card_id, st.session_state.expand_all)
-            with st.expander(f"{highlight}{card['title']}", expanded=expanded):
-            #with st.expander(f"{highlight}{card['title']}", expanded=st.session_state.expand_card.get(card["id"], st.session_state.expand_all)):
+            #is_editing = st.session_state.edit_id == card["id"]
+            #card_id = str(card["id"])
+
+            cid = card["id"]
+            is_editing = st.session_state.edit_id == cid
+            card_id = str(cid)
+            
+            #is_expanded = st.session_state.expand_card == card["id"]
+            is_expanded = st.session_state.expand_card.get(card_id, False)
+
+            with st.expander(f"{highlight}{card['title']}", expanded=is_expanded):
                 if is_editing:
                     # --- edit mode ---
                     etitle = st.text_input("タイトル", value=card["title"], key=f"et_{card['id']}")
@@ -318,18 +406,40 @@ for idx, status in enumerate(STATUSES):
                         st.session_state.edit_id = None
                         st.rerun()
                 else:
-                    #st.write(card["detail"])
                     st.markdown(card["detail"].replace("\n", "<br>"), unsafe_allow_html=True)
                     st.markdown("""
                     <style>
-                    .css-1n76uvr, .stMultiSelect [data-baseweb="tag"] {
-                        background-color: #A0AECB !important;  /* 緑（Medium用） */
+                    css-1n76uvr, .stMultiSelect [data-baseweb="tag"] {
+                        background-color: #A0AECB !important;
                         color: white !important;
                         border-radius: 8px !important;
                         padding: 2px 8px !important;
                     }
                     </style>
                     """, unsafe_allow_html=True)
+
+                    # ===== 小タスク一覧 =====
+                    for sub in fetch_subtasks(card_id):
+                        c_chk, c_lbl, c_del = st.columns([0.08, 0.78, 0.14])
+                        with c_chk:
+                            st.checkbox("", value=bool(sub["done"]), key=f"chk_{sub['id']}", on_change=toggle_subtask, args=(sub["id"], not sub["done"]))
+                        with c_lbl:
+                            label = f"~~{sub['title']}~~" if sub["done"] else sub["title"]
+                            st.markdown(label, unsafe_allow_html=True)
+                        with c_del:
+                            if st.button("🗑️", key=f"del_{card_id}_{sub['id']}"):
+                                delete_subtask(sub["id"])
+                                st.rerun()
+
+                    # -- 追加行 (コンパクト) --
+                    c_inp, c_add = st.columns([0.8, 0.2])
+                    new_key = f"new_sub_{cid}"
+                    with c_inp:
+                        st.text_input("小タスクを追加", key=new_key, placeholder="小タスクを追加", label_visibility="collapsed")
+                    with c_add:
+                        st.button("＋", key=f"add_{cid}", on_click=add_subtask_cb, args=(cid, new_key))
+
+
                     st.caption(f"Due: {card['due']} | Priority: {card['priority']} | Tags🏷: {card['tags']}")
                     if card.get("attachment") and os.path.exists(card["attachment"]):
                         file_name = os.path.basename(card["attachment"])
