@@ -280,49 +280,6 @@ def add_subtask_cb(ticket_id, key):
 # --- board ---
 board = fetch_board()
 
-
-# --- Drag & Drop using streamlit-sortables ---
-#   Use task titles as visible labels while mapping them back to card IDs.
-title_counts = {}
-id_to_card = {}
-sortable_containers = []
-for status in STATUSES:
-    items = []
-    for card in board[status]:
-        base = card["title"]
-        cnt = title_counts.get(base, 0)
-        title_counts[base] = cnt + 1
-        label = base + ("\u200b" * cnt)
-        items.append(label)
-        id_to_card[label] = card
-    sortable_containers.append({"header": status, "items": items})
-sorted_containers = sort_items(
-    sortable_containers,
-    multi_containers=True,
-    direction="vertical",
-    key="kanban_board",
-)
-if sorted_containers != sortable_containers:
-    for container in sorted_containers:
-        status = container["header"]
-        for idx_sort, label in enumerate(container["items"]):
-            card = id_to_card[label]
-            if card["status"] != status:
-                move_ticket(card["id"], status)
-                card["status"] = status
-            if card["sort"] != idx_sort:
-                conn.execute(
-                    "UPDATE tickets SET sort=?, updated=CURRENT_TIMESTAMP WHERE id=?",
-                    (idx_sort, card["id"]),
-                )
-                conn.commit()
-                card["sort"] = idx_sort
-    board = {
-        c["header"]: [id_to_card[label] for label in c["items"]]
-        for c in sorted_containers
-    }
-
-
 # --- チケット要素の抽出 ---
 all_cards = [card for col in board.values() for card in col]
 # --- Tag要素の抽出 ---
@@ -469,9 +426,7 @@ for idx, status in enumerate(STATUSES):
                             st.checkbox("", value=bool(sub["done"]), key=f"chk_{sub['id']}", on_change=toggle_subtask, args=(sub["id"], not sub["done"]))
                         with c_lbl:
                             label = f"~~{sub['title']}~~" if sub["done"] else sub["title"]
-                            st.markdown(f"<div style='line-height: 1.2em; margin: 0 0 0.2em 0;'>{label}</div>", unsafe_allow_html=True)
-                            #label = f"~~{sub['title']}~~" if sub["done"] else sub["title"]
-                            #st.markdown(label, unsafe_allow_html=True)
+                            st.markdown(label, unsafe_allow_html=True)
                         with c_del:
                             if st.button("🗑️", key=f"del_{card_id}_{sub['id']}"):
                                 delete_subtask(sub["id"])
